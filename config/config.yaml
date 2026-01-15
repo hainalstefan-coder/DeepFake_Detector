@@ -1,0 +1,44 @@
+# Deepfake Detector Configuration
+# Inspired by Mandrake multi-agent fault-tolerant design
+
+# Agent Configuration
+agents:
+  timeout_seconds: 30
+  max_retries: 1
+  quorum: 3  # Minimum agents needed for final decision (Continue pattern)
+
+  # Agent weights for aggregation
+  weights:
+    CNNClassifierAgent: 1.0
+    ViTClassifierAgent: 1.0
+    FrequencyAgent: 0.8
+    EmbeddingAnomalyAgent: 0.9
+    FaceXrayLikeAgent: 0.85
+
+# Detection Thresholds
+detection:
+  fake_threshold: 0.6  # Score >= threshold = FAKE
+  high_confidence_threshold: 0.8
+
+# Preprocessing
+preprocessing:
+  detector: "mtcnn"  # Options: mtcnn, retinaface
+  face_size: 224
+  margin: 20  # Margin around detected face
+
+# Storage (Checkpoint pattern - persist agent outputs)
+storage:
+  type: "sqlite"  # Options: sqlite, memory
+  path: "./data/jobs.db"
+  jobs_dir: "./data/jobs"
+
+# Server
+server:
+  host: "0.0.0.0"
+  port: 8000
+  debug: true
+
+# Device
+device:
+  prefer_gpu: true
+  fallback_cpu: true

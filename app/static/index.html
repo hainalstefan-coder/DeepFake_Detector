@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deepfake Detector</title>
+    <meta name="description" content="Multi-agent deepfake detection system with real-time analysis">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <!-- Top Navigation Bar -->
+    <header class="top-bar">
+        <div class="logo">
+            <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                <path d="M2 17l10 5 10-5" />
+                <path d="M2 12l10 5 10-5" />
+            </svg>
+            <span class="logo-text">DeepfakeDetector</span>
+        </div>
+        <div class="status-bar">
+            <span class="status-item" id="gpu-status">
+                <span class="status-dot"></span>
+                <span>GPU: checking...</span>
+            </span>
+            <span class="status-item">
+                <span class="status-dot active"></span>
+                <span>Agents: <span id="agent-count">5</span></span>
+            </span>
+            <span class="status-item" id="last-job">
+                <span>Last job: --</span>
+            </span>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Left Column: Upload -->
+        <aside class="left-column">
+            <div class="card upload-card">
+                <h2 class="card-title">Upload Image</h2>
+                <div class="drop-zone" id="drop-zone">
+                    <svg class="drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="17 8 12 3 7 8" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    <p class="drop-text">Drag & drop an image here</p>
+                    <p class="drop-subtext">or</p>
+                    <button class="btn btn-primary" id="file-btn">Choose File</button>
+                    <input type="file" id="file-input" accept="image/*" hidden>
+                </div>
+                <div class="file-info" id="file-info" style="display: none;">
+                    <div class="file-preview">
+                        <img id="preview-image" alt="Preview">
+                    </div>
+                    <div class="file-meta">
+                        <p class="file-name" id="file-name">image.jpg</p>
+                        <p class="file-details" id="file-details">1920×1080 • 2.4 MB</p>
+                        <p class="file-faces" id="file-faces"></p>
+                    </div>
+                    <button class="btn btn-secondary" id="analyze-btn">Analyze</button>
+                </div>
+            </div>
+
+            <!-- Previous Jobs -->
+            <div class="card jobs-card">
+                <h3 class="card-subtitle">Recent Analyses</h3>
+                <ul class="jobs-list" id="jobs-list">
+                    <li class="job-item placeholder">No previous analyses</li>
+                </ul>
+            </div>
+        </aside>
+
+        <!-- Right Column: Results -->
+        <section class="right-column">
+            <!-- Final Verdict Card -->
+            <div class="card verdict-card" id="verdict-card">
+                <div class="verdict-header">
+                    <h2 class="card-title">Analysis Result</h2>
+                    <span class="job-id" id="current-job-id"></span>
+                </div>
+                <div class="verdict-content" id="verdict-content">
+                    <div class="verdict-placeholder">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <circle cx="12" cy="12" r="10" />
+                            <path d="M12 6v6l4 2" />
+                        </svg>
+                        <p>Upload an image to begin analysis</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Agent Cards Grid -->
+            <div class="agents-grid" id="agents-grid">
+                <!-- Agent cards will be populated dynamically -->
+            </div>
+        </section>
+    </main>
+
+    <!-- Bottom: Event Log -->
+    <footer class="event-log-container">
+        <div class="event-log-header">
+            <h3>Event Log</h3>
+            <button class="btn btn-icon" id="clear-log-btn" title="Clear log">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+            </button>
+        </div>
+        <div class="event-log" id="event-log">
+            <div class="log-entry info">
+                <span class="log-time">[--:--:--]</span>
+                <span class="log-message">Ready to analyze images</span>
+            </div>
+        </div>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
