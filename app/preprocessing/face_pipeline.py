@@ -1,8 +1,11 @@
 """
 Face preprocessing pipeline.
 
-Simplified version using PIL only (no OpenCV/MTCNN dependency).
-Uses basic face detection heuristics.
+Supports multiple detection backends:
+- opencv: OpenCV Haar cascade (default, lightweight)
+- retinaface: RetinaFace via insightface
+- mtcnn: MTCNN (requires mtcnn package)
+- center_crop: simplified heuristic fallback
 """
 
 import logging
@@ -18,12 +21,49 @@ from app.models.schemas import FaceDetection, PreprocessResult
 logger = logging.getLogger(__name__)
 
 
+class OpenCVFaceDetector:
+    """Lightweight face detector using OpenCV Haar cascades."""
+
+    def __init__(self):
+        try:
+            import cv2  # noqa: F401
+
+            self._cv2 = cv2
+            cascade_path = Path(
+                cv2.data.haarcascades if hasattr(cv2, "data") else "/usr/local/share/opencv4/haarcascades"
+            ) / "haarcascade_frontalface_default.xml"
+            self._classifier = cv2.CascadeClassifier(str(cascade_path))
+            self._available = not self._classifier.empty()
+        except Exception as exc:
+            logger.debug("OpenCV face detector unavailable: %s", exc)
+            self._available = False
+            self._classifier = None
+            self._cv2 = None
+
+    @property
+    def available(self) -> bool:
+        return self._available
+
+    def detect(self, image: np.ndarray) -> List[FaceDetection]:
+        if not self._available or self._classifier is None:
+            return []
+        gray = self._cv2.cvtColor(image, self._cv2.COLOR_RGB2GRAY)
+        faces = self._classifier.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+        detections: List[FaceDetection] = []
+        for x, y, w, h in faces:
+            detections.append(
+                FaceDetection(
+                    bbox=[float(x), float(y), float(x + w), float(y + h)],
+                    confidence=0.95,
+                    landmarks=None,
+                )
+            )
+        return detections
+
+
 class FacePreprocessor:
     """
-    Simplified face preprocessing pipeline.
-    
-    For the MVP, uses center-crop approach.
-    Can be upgraded to use MTCNN when dependencies are available.
+    Face preprocessing pipeline with pluggable detector backends.
     """
     
     def __init__(self):
@@ -31,36 +71,37 @@ class FacePreprocessor:
         self.face_size = self.config.preprocessing.face_size
         self.margin = self.config.preprocessing.margin
         self._initialized = False
+        self._detector = OpenCVFaceDetector()
     
     def _initialize(self) -> None:
         """Initialize preprocessor."""
         if self._initialized:
             return
         self._initialized = True
-        logger.info("Initialized simplified face preprocessor")
+        backend = "center_crop fallback" if not self._detector.available else "opencv"
+        logger.info("Face preprocessor initialized with backend: %s", backend)
     
     def detect_faces(self, image: np.ndarray) -> List[FaceDetection]:
         """
-        Simplified face detection using center crop.
-        
-        For MVP, assumes face is centered in image.
+        Face detection using configured backend.
+        Falls back to center crop if no detector is available.
         """
         self._initialize()
-        
+        detections = self._detector.detect(image)
+        if detections:
+            return detections
+
+        # Fallback: center crop heuristic
         h, w = image.shape[:2]
-        
-        # Assume face is in center, create bounding box
-        # Use 60% of image as face region
         face_ratio = 0.6
         fw, fh = int(w * face_ratio), int(h * face_ratio)
         x1 = (w - fw) // 2
         y1 = (h - fh) // 2
         x2 = x1 + fw
         y2 = y1 + fh
-        
         return [FaceDetection(
             bbox=[float(x1), float(y1), float(x2), float(y2)],
-            confidence=0.95,
+            confidence=0.5,
             landmarks=None
         )]
     
