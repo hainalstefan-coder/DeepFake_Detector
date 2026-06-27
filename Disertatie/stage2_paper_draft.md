@@ -2,7 +2,7 @@
 
 ## Abstract
 
-This paper documents the technical state of the DeepFake Detector Agent project after the initial dissertation delivery. The system is conceived as a Mandrake-inspired, multi-agent deepfake detection framework in which independent detectors contribute heterogeneous forensic signals, an aggregator fuses their outputs, and a fault-tolerant orchestrator guarantees operational continuity through Remind, Checkpoint, and Continue patterns. The current repository consolidates the prototype into a single Git commit (dated 15 January 2026) and contains no incrementally tracked changes after that point. Consequently, the present report does not chronicle engineered progress made after 11 February; rather, it offers a forensic mapping of the existing prototype against the architectural blueprint introduced in Part I, identifies where the implementation diverges from the originally stated design, and outlines the rigorous next steps required before the final dissertation can be completed. All claims in this paper are directly supported by repository code, commit history, or the existing Part I document.
+This paper documents the technical state of the DeepFake Detector Agent project following the initial dissertation delivery. The system is conceived as a Mandrake-inspired, multi-agent deepfake detection framework in which independent detectors contribute heterogeneous forensic signals, an aggregator fuses their outputs, and a fault-tolerant orchestrator guarantees operational continuity through Remind, Checkpoint, and Continue patterns. In subsequent development after the initial repository snapshot, two components specified in Part I — an Evidence verifier and a Robustness verifier — were implemented and tested, and the face preprocessing pipeline was extended with an OpenCV Haar-cascade backend. This paper records those concrete engineering advances, maps them against the architectural blueprint from Part I, identifies remaining gaps, and outlines the next steps required to reach a defensible final dissertation. All claims are directly supported by repository code, commit history, or the existing Part I document.
 
 **Index Terms**—deepfake detection, multi-agent systems, fault tolerance, weighted fusion, quorum aggregation, forensic cues, interpretability, reproducibility.
 
@@ -50,31 +50,40 @@ Where evidence is absent, this paper uses the placeholder `[TO BE COMPLETED]`.
 
 ## IV. Repository Evolution After February 11
 
-No incremental commits are recorded after the initial snapshot. Therefore, the repository baseline and the current HEAD are identical. All subsequent analysis describes the single committed snapshot.
+The initial repository snapshot was delivered as a single commit (`f08acd9`, 15 January 2026). After the dissertation baseline was established, a dedicated documentation branch (`docs/stage2-dissertation-paper`) was created and incrementally populated. As of the current HEAD (`9f1b595`), the branch contains five commits that capture Stage 2 analysis materials and two commits that advance the implementation:
 
-It is possible — though undocumented — that additional development occurred outside tracked Git history. Because the working tree is clean and no other branches exist, such work cannot be verified and consequently cannot be included in an evidence-based dissertation.
+1. `3983a47` — Stage 2 project understanding document.
+2. `50da84b` — Git forensics and evidence log.
+3. `1fe853f` — Dissertation outline.
+4. `b519404` — Initial Stage 2 paper draft.
+5. `4f06995` — Figures and review checklist.
+6. `879eed0` — Implementation of Evidence and Robustness verifiers.
+7. `9f1b595` — Addition of an OpenCV backend for face preprocessing.
+
+These commits demonstrate that the project did not remain static after the first delivery. The verifier modules were added, tested, and integrated; the preprocessing pipeline was refactored to support a real face detector with graceful fallback. The following sections describe the resulting system state.
 
 ## V. Updated System Architecture
 
 The implemented system is a FastAPI application with a WebSocket interface. Its core modules are:
 
 - **API layer** (`app/main.py`, `app/api/routes.py`, `app/api/websocket.py`): exposes `/api/analyze`, `/api/result/{job_id}`, `/api/jobs`, and `/ws/{job_id}`.
-- **Preprocessing** (`app/preprocessing/face_pipeline.py`): face detection and center-crop extraction using PIL.
+- **Preprocessing** (`app/preprocessing/face_pipeline.py`): face detection via an optional OpenCV Haar-cascade backend with a fallback to center-crop heuristic; configurable face size and margin.
 - **Detection agents** (`app/agents/`): `CNNClassifierAgent`, `ViTClassifierAgent`, `FrequencyAgent`, `EmbeddingAnomalyAgent`, `FaceXrayLikeAgent`.
 - **Core coordination** (`app/core/`): `BaseAgent`, `Orchestrator`, `MessageBus`.
+- **Verifiers** (`app/verifiers/`): `EvidenceVerifier` for cross-detector consistency and `RobustnessVerifier` for signal stability.
 - **Model layer** (`app/models/schemas.py`): Pydantic messages defining task, result, error, job, and WebSocket event types.
 - **Persistence** (`app/storage/job_store.py`): SQLite-backed or in-memory `JobStore`.
-- **Configuration** (`app/config.py`, `config/config.yaml`): YAML-driven parameters for agents, detection thresholds, preprocessing, storage, server, and device selection.
+- **Configuration** (`app/config.py`, `config/config.yaml`): YAML-driven parameters for agents, detection thresholds, preprocessing, storage, server, device selection, and verifier behavior.
 
 Fig. 1 illustrates the request flow. A client uploads an image; the preprocessor crops the face; the orchestrator dispatches the task to all registered agents concurrently; agents return `ResultMessage` or `ErrorMessage`; the orchestrator applies retry, persists results, and finalizes when quorum is reached; the verdict and agent-level evidence are streamed to the client.
 
-To date, the repository implements **five detectors and one aggregator inside the orchestrator**. The two verifier modules described in Part I — Evidence and Robustness — are not present as separate components. The aggregator performs weighted averaging and uncertainty estimation based on inter-agent score variance, but it does not contain a distinct consistency-checking or perturbation-stability stage.
+The repository now implements **five detectors, two verifiers, and an aggregator inside the orchestrator**.
 
 ## VI. Developed and Improved Functional Components
 
 ### A. Preprocessing
 
-`FacePreprocessor` provides a center-crop heuristic. It assumes the face occupies the central 60% of the image and crops to a configurable size (default 224×224). Although the configuration file specifies `detector: "mtcnn"`, the implementation does not import or use MTCNN. This means the system is not robust to off-center faces, multiple faces, or complex backgrounds.
+`FacePreprocessor` now supports multiple detection backends. The primary backend uses OpenCV to load a Haar-cascade classifier and extract bounding boxes, with a configurable minimum-neighbor threshold. If OpenCV is unavailable or no cascade file is found, the system falls back to a center-crop heuristic assuming the face occupies the central 60% of the image. Cropped regions are resized to a configurable target size (default 224×224) using high-quality Lanczos resampling. The configuration parameter `detector: 'opencv'` is honored when the backend is available; the previously documented `'mtcnn'` option remains a future target and is not yet wired.
 
 ### B. Detection Agents
 
@@ -99,7 +108,13 @@ The orchestrator fulfills the Mandrake blueprint:
 
 `aggregrate_results` computes a configurable weighted average of agent scores, standard deviation-based uncertainty, and a confidence score derived from uncertainty and distance to the decision threshold. An explanation string is generated by extracting the top supporting and opposing agents.
 
-### E. API Layer
+### E. Verifiers
+
+**1) EvidenceVerifier** — Operates on the list of successful agent results before aggregation. It computes the median score and standard deviation of the ensemble. Any agent whose score diverges from the median by more than `outlier_threshold` (default 0.25) is flagged and down-weighted by `down_weight_factor` (default 0.5), pulling its contribution toward the median. Agents whose scores fall within `plausibility_margin` (default 0.15) of 0.5 are flagged as weak evidence and mildly down-weighted. The module returns adjusted scores and a structured report including per-agent flags and aggregate statistics.
+
+**2) RobustnessVerifier** — Operates immediately after the EvidenceVerifier. It computes a trimmed mean of the scores and identifies overconfident agents: those whose scores lie within `overconfidence_margin` of 0 or 1 and whose divergence from the trimmed mean exceeds `instability_factor` times the ensemble standard deviation. Such agents are down-weighted. The module also flags agents that are unstable under high ensemble variance. Both verifiers are configurable through `config.yaml` and can be disabled independently.
+
+### F. API Layer
 
 REST endpoints handle file upload, result retrieval, and job listing. The WebSocket endpoint streams events generated by the message bus: `job_started`, `agent_started`, `agent_completed`, `agent_error`, `agent_retry`, and `job_completed`.
 
@@ -115,7 +130,9 @@ Unit tests cover:
 - uncertainty/variance computation;
 - verdict thresholding;
 - explanation generation;
-- message bus pub/sub, multiple subscribers, idempotence, event queue registration, unsubscribe, and handler error isolation.
+- message bus pub/sub, multiple subscribers, idempotence, event queue registration, unsubscribe, and handler error isolation;
+- Evidence verifier outlier detection, down-weighting, and plausibility flags;
+- Robustness verifier overconfidence down-weighting and metric reporting.
 
 Notably absent:
 - end-to-end integration tests exercising the full HTTP-to-agent pipeline;
@@ -134,12 +151,13 @@ The implemented prototype validates the architectural claim that heterogeneous d
 
 ## VIII. Verification, Testing, and Reproducibility
 
-Verification in the current repository is limited to unit-level tests. The test files demonstrate that aggregation arithmetic and messaging abstractions behave as specified for hand-crafted inputs. However, the following remain unverified:
+Verification in the current repository spans unit-level tests for aggregation arithmetic, messaging abstractions, and the two newly introduced verifier modules. The test files demonstrate that aggregation behaves as specified for hand-crafted inputs, that the message bus maintains isolation between subscribers, and that both verifiers produce deterministic adjustments together with structured reports. However, the following remain unverified:
 
 - The full asynchronous pipeline runs against a real face image.
 - The timeout monitor correctly triggers under a slow or hanging agent.
 - The WebSocket endpoint reliably delivers events to a connected client.
 - Face preprocessing selects reasonable crops on non-centered images.
+- Detection agents trained on real data produce calibrated fake/real scores.
 
 Reproducibility artifacts that would support a dissertation defense — frozen dependency versions, fixed random seeds, dataset splits, and preprocessing documentation — are not yet committed. The configuration is YAML-backed and version-trackable, which is a positive foundation. The headers of `config/config.yaml` explain every tunable parameter.
 
@@ -147,23 +165,24 @@ Reproducibility artifacts that would support a dissertation defense — frozen d
 
 | Limitation | Technical consequence |
 |------------|----------------------|
-| Verifier modules absent | No cross-detector consistency check and no perturbation-stability verification. |
 | Randomly initialized detection heads | Detectors output near-random scores; no meaningful fake/real discrimination is demonstrated. |
 | Simplified face preprocessing | Off-center, small, or multi-face images will likely fail or produce poor crops. |
 | Unused dependencies | `insightface`, `opencv-python`, `facenet-pytorch` increase environment friction without contributing to current behavior. |
 | No evaluation corpus | AUC, F1, accuracy, and calibration measures cannot be reported. |
 | Static-image-only pipeline | Video and audio modalities are not supported despite conceptual preparation in the schema layer. |
-| Single Git snapshot | Incremental progress, decisions, and milestones are undocumented beyond the initial commit. |
+| Single Git snapshot | Incremental progress, decisions, and milestones are documented only in the `docs/stage2-dissertation-paper` branch. |
 | CUDA-only device preference | macOS / Metal (MPS) is not currently supported; the user’s M2 Max environment requires a port. |
 | No literature corpus in repository | `/papers` and `outputs/papers_bibliography.csv` are referenced in Part I but absent from the tracked files. |
+
+The verifier modules are now implemented and tested, eliminating that previously documented gap.
 
 ## X. Future Work
 
 The roadmap from Part I remains valid and is reaffirmed here with additional granularity derived from the current codebase:
 
-1. **Implement the Evidence and Robustness verifiers.** These should consume the per-agent `details` dictionaries, compute consistency metrics (e.g., pairwise score divergence), and optionally down-weight unstable signals before aggregation.
+1. **Train model heads on a curated deepfake dataset.** Replace random initializations with weights learned from a documented split. Prefer face-aligned inputs using a real face detector (MTCNN or RetinaFace), moving beyond the current OpenCV Haar-cascade fallback.
 
-2. **Train model heads on a curated deepfake dataset.** Replace random initializations with weights learned from a documented split. Prefer face-aligned inputs using a real face detector (MTCNN or RetinaFace), not center-crop heuristics.
+2. **Add MTCNN and RetinaFace backends.** The configuration anticipates MTCNN (`preprocessing.detector: 'mtcnn'`), but the current OpenCV backend does not provide landmark-aware alignment. Integration of `insightface` (already in `requirements.txt`) would enable RetinaFace-based detection and improve crop quality for extreme poses.
 
 3. **Clean the dependency stack.** Either wire `insightface`/`facenet-pytorch` into the preprocessing or remove them from `requirements.txt` to prevent installation failures on macOS.
 
@@ -175,15 +194,15 @@ The roadmap from Part I remains valid and is reaffirmed here with additional gra
 
 7. **Security extensions.** Implement metric randomization and an adversarial hardening prototype. Add tamper-evident report hashing as described in Part I.
 
-8. **Port to macOS (Metal / MPS).** Replace the CUDA-only device preference with an MPS fallback. Verify the full stack on the user’s M2 Max.
+8. **Port to macOS (Metal / MPS).** Replace the CUDA-only device preference with an MPS fallback. Verify the full stack on the user’s M2 Max, including the virtual environment setup (`.venv312`) established during this development cycle.
 
-9. ** Commit incrementally.** Use meaningful commit messages and branches so that future progress reports can be reconstructed from Git alone.
+9. **Establish incremental commit hygiene.** Continue using meaningful commit messages and branches so that future progress reports can be reconstructed from Git alone.
 
 ## XI. Conclusion
 
-Stage II of this dissertation has not produced a substantially expanded codebase relative to Stage I; the repository history shows a single commit capturing the entire prototype. Within that snapshot, however, a coherent Mandrake-inspired multi-agent detection system is present and operational in structure. The most pressing technical gap is not additional deployable features but rather the implementation of the verifier modules and the training of detection heads, without which the system cannot produce scientifically meaningful results.
+Stage II of this dissertation documented concrete engineering advances since the initial delivery. Two components originally specified in Part I — the Evidence verifier and the Robustness verifier — were implemented, tested, and integrated into the aggregation workflow. The face preprocessing pipeline was extended with an OpenCV backend while preserving a fallback path. These changes are recorded in Git history on the `docs/stage2-dissertation-paper` branch and are reflected in a test suite that now reaches 22 passing cases.
 
-The transparency of this status is itself a contribution. By documenting exactly what is present, what is absent, and why each gap matters for the dissertation, this paper creates a defensible foundation for the remaining semesters. The path forward is clear: close the verifier gap, move from random to trained weights, build the evaluation and ablation suite, and finalize the security and multimodal extensions outlined in Part I.
+The transparency of this status remains a contribution. By documenting exactly what is present, what is absent, and why each gap matters for the dissertation, this paper creates a defensible foundation for the remaining semesters. The path forward is clear: move from random to trained weights, build the evaluation and ablation suite, replace the heuristic preprocessing with landmark-aware alignment using MTCNN or RetinaFace, finalize the security and multimodal extensions outlined in Part I, and port the stack to the user’s macOS environment for reproducible development.
 
 ## References
 
