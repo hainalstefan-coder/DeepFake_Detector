@@ -54,6 +54,16 @@ class DeviceConfig(BaseModel):
     fallback_cpu: bool = True
 
 
+class VerifierConfig(BaseModel):
+    evidence_enabled: bool = True
+    robustness_enabled: bool = True
+    outlier_threshold: float = 0.25
+    plausibility_margin: float = 0.15
+    down_weight_factor: float = 0.5
+    overconfidence_margin: float = 0.15
+    instability_factor: float = 2.0
+
+
 class Config(BaseModel):
     agents: AgentConfig = AgentConfig()
     detection: DetectionConfig = DetectionConfig()
@@ -61,6 +71,7 @@ class Config(BaseModel):
     storage: StorageConfig = StorageConfig()
     server: ServerConfig = ServerConfig()
     device: DeviceConfig = DeviceConfig()
+    verifier: VerifierConfig = VerifierConfig()
 
 
 def load_config(config_path: Optional[str] = None) -> Config:

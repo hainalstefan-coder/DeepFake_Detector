@@ -10,7 +10,7 @@ Implements fault tolerance patterns:
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from app.config import get_config
 from app.core.message_bus import MessageBus, get_message_bus
@@ -24,6 +24,8 @@ from app.models.schemas import (
     TaskMessage,
     WebSocketEvent,
 )
+from app.verifiers.evidence import EvidenceVerifier
+from app.verifiers.robustness import RobustnessVerifier
 
 logger = logging.getLogger(__name__)
 
@@ -446,9 +448,31 @@ class Orchestrator:
                 agents_total=len(job.agent_states),
                 explanation="No agents completed successfully",
                 agent_results=[],
-                agent_errors=errors
+                agent_errors=errors,
+                evidence_verifier_report=None,
+                robustness_verifier_report=None,
             )
-        
+
+        # Apply verifiers if enabled
+        evidence_report: Optional[Dict[str, Any]] = None
+        robustness_report: Optional[Dict[str, Any]] = None
+
+        if self.config.verifier.evidence_enabled:
+            verifier = EvidenceVerifier(
+                outlier_threshold=self.config.verifier.outlier_threshold,
+                plausibility_margin=self.config.verifier.plausibility_margin,
+                down_weight_factor=self.config.verifier.down_weight_factor,
+            )
+            results, evidence_report = verifier.verify(results)
+
+        if self.config.verifier.robustness_enabled:
+            verifier = RobustnessVerifier(
+                overconfidence_margin=self.config.verifier.overconfidence_margin,
+                instability_factor=self.config.verifier.instability_factor,
+                down_weight_factor=self.config.verifier.down_weight_factor,
+            )
+            results, robustness_report = verifier.verify(results)
+
         # Get weights
         weights_config = self.config.agents.weights
         weights_dict = {
@@ -508,7 +532,9 @@ class Orchestrator:
             agents_total=len(job.agent_states),
             explanation=explanation,
             agent_results=results,
-            agent_errors=errors
+            agent_errors=errors,
+            evidence_verifier_report=evidence_report,
+            robustness_verifier_report=robustness_report,
         )
     
     def _generate_explanation(

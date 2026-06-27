@@ -117,6 +117,12 @@ class AggregatedResult(BaseModel):
     explanation: str = Field(..., description="Summary explanation")
     agent_results: List[ResultMessage] = Field(default_factory=list)
     agent_errors: List[ErrorMessage] = Field(default_factory=list)
+    evidence_verifier_report: Optional[Dict[str, Any]] = Field(
+        default=None, description="Evidence verifier findings"
+    )
+    robustness_verifier_report: Optional[Dict[str, Any]] = Field(
+        default=None, description="Robustness verifier findings"
+    )
     completed_at: datetime = Field(default_factory=datetime.utcnow)
 
 
